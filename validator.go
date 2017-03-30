@@ -570,20 +570,33 @@ func ValidateStruct(s interface{}) (bool, error) {
 				switch jsonError := err2.(type) {
 				case Error:
 					jsonError.Name = jsonTag
-					err2 = jsonError
+					errs = append(errs, jsonError)
 				case Errors:
 					for _, e := range jsonError.Errors() {
 						switch tempErr := e.(type) {
 						case Error:
 							tempErr.Name = jsonTag
-							e = tempErr
+							errs = append(errs, tempErr)
 						}
 					}
-					err2 = jsonError
+				default:
+					errs = append(errs, jsonError)
+				}
+			} else {
+				switch tError := err2.(type) {
+				case Error:
+					errs = append(errs, tError)
+				case Errors:
+					for _, e := range tError.Errors() {
+						switch tempErr := e.(type) {
+						case Error:
+							errs = append(errs, tempErr)
+						}
+					}
+				default:
+					errs = append(errs, tError)
 				}
 			}
-
-			errs = append(errs, err2)
 		}
 		result = result && resultField
 	}
@@ -727,6 +740,17 @@ func checkRequired(v reflect.Value, t reflect.StructField, options tagOptionsMap
 	return true, nil
 }
 
+func parsevalidator(validator string) (string, []string) {
+
+	vs := strings.SplitN(validator, "=", -1)
+	if len(vs) <= 1 {
+		return vs[0], []string{}
+	}
+
+	params := strings.SplitN(vs[1], "|", -1)
+	return vs[0], params
+}
+
 func typeCheck(v reflect.Value, t reflect.StructField, o reflect.Value) (bool, error) {
 	if !v.IsValid() {
 		return false, nil
@@ -754,10 +778,11 @@ func typeCheck(v reflect.Value, t reflect.StructField, o reflect.Value) (bool, e
 
 	var customTypeErrors Errors
 	var customTypeValidatorsExist bool
-	for validatorName, customErrorMessage := range options {
+	for validator, customErrorMessage := range options {
+		validatorName, validatorParams := parsevalidator(validator)
 		if validatefunc, ok := CustomTypeTagMap.Get(validatorName); ok {
 			customTypeValidatorsExist = true
-			if result := validatefunc(v.Interface(), o.Interface()); !result {
+			if result := validatefunc(v.Interface(), o.Interface(), validatorParams...); !result {
 				if len(customErrorMessage) > 0 {
 					customTypeErrors = append(customTypeErrors, Error{Name: t.Name, Err: fmt.Errorf(customErrorMessage), CustomErrorMessageExists: true})
 					continue
