@@ -730,11 +730,11 @@ func IsIn(str string, params ...string) bool {
 func checkRequired(v reflect.Value, t reflect.StructField, options tagOptionsMap) (bool, error) {
 	if requiredOption, isRequired := options["required"]; isRequired {
 		if len(requiredOption) > 0 {
-			return false, Error{t.Name, fmt.Errorf(requiredOption), true}
+			return false, Error{t.Name, v.Interface(), fmt.Errorf(requiredOption), true}
 		}
-		return false, Error{t.Name, fmt.Errorf("non zero value required"), false}
+		return false, Error{t.Name, v.Interface(), fmt.Errorf("non zero value required"), false}
 	} else if _, isOptional := options["optional"]; fieldsRequiredByDefault && !isOptional {
-		return false, Error{t.Name, fmt.Errorf("All fields are required to at least have one validation defined"), false}
+		return false, Error{t.Name, v.Interface(), fmt.Errorf("All fields are required to at least have one validation defined"), false}
 	}
 	// not required and empty is valid
 	return true, nil
@@ -764,7 +764,7 @@ func typeCheck(v reflect.Value, t reflect.StructField, o reflect.Value) (bool, e
 		if !fieldsRequiredByDefault {
 			return true, nil
 		}
-		return false, Error{t.Name, fmt.Errorf("All fields are required to at least have one validation defined"), false}
+		return false, Error{t.Name, v.Interface(), fmt.Errorf("All fields are required to at least have one validation defined"), false}
 	case "-":
 		return true, nil
 	}
@@ -784,10 +784,10 @@ func typeCheck(v reflect.Value, t reflect.StructField, o reflect.Value) (bool, e
 			customTypeValidatorsExist = true
 			if result := validatefunc(v.Interface(), o.Interface(), validatorParams...); !result {
 				if len(customErrorMessage) > 0 {
-					customTypeErrors = append(customTypeErrors, Error{Name: t.Name, Err: fmt.Errorf(customErrorMessage), CustomErrorMessageExists: true})
+					customTypeErrors = append(customTypeErrors, Error{Name: t.Name, Value: v.Interface(), Err: fmt.Errorf(customErrorMessage), CustomErrorMessageExists: true})
 					continue
 				}
-				customTypeErrors = append(customTypeErrors, Error{Name: t.Name, Err: fmt.Errorf("%s does not validate as %s", fmt.Sprint(v), validatorName), CustomErrorMessageExists: false})
+				customTypeErrors = append(customTypeErrors, Error{Name: t.Name, Value: v.Interface(), Err: fmt.Errorf("%s does not validate as %s", fmt.Sprint(v), validatorName), CustomErrorMessageExists: false})
 			}
 		}
 	}
@@ -838,11 +838,11 @@ func typeCheck(v reflect.Value, t reflect.StructField, o reflect.Value) (bool, e
 										err = fmt.Errorf("%s does validate as %s", field, validator)
 									}
 								}
-								return false, Error{t.Name, err, customMsgExists}
+								return false, Error{t.Name, v.Interface(), err, customMsgExists}
 							}
 						default:
 							// type not yet supported, fail
-							return false, Error{t.Name, fmt.Errorf("Validator %s doesn't support kind %s", validator, v.Kind()), false}
+							return false, Error{t.Name, v.Interface(), fmt.Errorf("Validator %s doesn't support kind %s", validator, v.Kind()), false}
 						}
 					}
 				}
@@ -868,12 +868,12 @@ func typeCheck(v reflect.Value, t reflect.StructField, o reflect.Value) (bool, e
 								err = fmt.Errorf("%s does validate as %s", field, validator)
 							}
 						}
-						return false, Error{t.Name, err, customMsgExists}
+						return false, Error{t.Name, v.Interface(), err, customMsgExists}
 					}
 				default:
 					//Not Yet Supported Types (Fail here!)
 					err := fmt.Errorf("Validator %s doesn't support kind %s for value %v", validator, v.Kind(), v)
-					return false, Error{t.Name, err, false}
+					return false, Error{t.Name, v.Interface(), err, false}
 				}
 			}
 		}

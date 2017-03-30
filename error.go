@@ -19,6 +19,7 @@ func (es Errors) Error() string {
 // Error encapsulates a name, an error and whether there's a custom error message or not.
 type Error struct {
 	Name                     string
+	Value                    interface{}
 	Err                      error
 	CustomErrorMessageExists bool
 }
