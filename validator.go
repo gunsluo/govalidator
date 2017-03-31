@@ -606,6 +606,217 @@ func ValidateStruct(s interface{}) (bool, error) {
 	return result, err
 }
 
+// ValidateVar use tags for var.
+// result will be equal to `false` if there are any errors.
+func ValidateVar(val interface{}, tag string) (bool, error) {
+
+	if tag == "" {
+		return false, Error{"", val, fmt.Errorf("value are required to at least have one validation tag"), false}
+	}
+	options := parseTagIntoMap(tag)
+
+	return validateVar(reflect.ValueOf(val), "", options)
+}
+
+func validateVar(v reflect.Value, field string, options tagOptionsMap) (bool, error) {
+
+	if !v.IsValid() {
+		return false, nil
+	}
+
+	if isEmptyValue(v) {
+		// an empty value is not validated, check only required
+		return checkRequired2(v, field, options)
+	}
+
+	switch v.Kind() {
+	case reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64,
+		reflect.String:
+		return checkBasicDataType(v, field, options)
+	case reflect.Map:
+		return checkMap(v, field, options)
+	case reflect.Slice:
+		return checkSlice(v, field, options)
+	case reflect.Array:
+		return checkArray(v, field, options)
+	case reflect.Ptr:
+		// If the value is a pointer then check its element
+		if v.IsNil() {
+			return true, nil
+		}
+		return validateVar(v.Elem(), field, options)
+	case reflect.Interface:
+	case reflect.Struct:
+		//return ValidateStruct(v.Interface())
+	default:
+		return false, &UnsupportedTypeError{v.Type()}
+	}
+
+	return true, nil
+}
+
+func checkRequired2(v reflect.Value, field string, options tagOptionsMap) (bool, error) {
+	if requiredOption, isRequired := options["required"]; isRequired {
+		if len(requiredOption) > 0 {
+			return false, Error{field, v.Interface(), fmt.Errorf(requiredOption), true}
+		}
+		return false, Error{field, v.Interface(), fmt.Errorf("non zero value required"), false}
+	} else if _, isOptional := options["optional"]; fieldsRequiredByDefault && !isOptional {
+		return false, Error{field, v.Interface(), fmt.Errorf("All fields are required to at least have one validation defined"), false}
+	}
+	// not required and empty is valid
+	return true, nil
+}
+
+func checkBasicDataType(v reflect.Value, field string, options tagOptionsMap) (bool, error) {
+	// for each tag option check the map of validator functions
+	for validator, customErrorMessage := range options {
+		var negate bool
+		customMsgExists := (len(customErrorMessage) > 0)
+		// Check wether the tag looks like '!something' or 'something'
+		if validator[0] == '!' {
+			validator = string(validator[1:])
+			negate = true
+		}
+
+		// Check for param validators
+		for key, value := range ParamTagRegexMap {
+			ps := value.FindStringSubmatch(validator)
+			if len(ps) > 0 {
+				if validatefunc, ok := ParamTagMap[key]; ok {
+					switch v.Kind() {
+					case reflect.String:
+						fieldVal := fmt.Sprint(v) // make value into string, then validate with regex
+						if result := validatefunc(fieldVal, ps[1:]...); (!result && !negate) || (result && negate) {
+							var err error
+							if !negate {
+								if customMsgExists {
+									err = fmt.Errorf(customErrorMessage)
+								} else {
+									err = fmt.Errorf("%s does not validate as %s", fieldVal, validator)
+								}
+
+							} else {
+								if customMsgExists {
+									err = fmt.Errorf(customErrorMessage)
+								} else {
+									err = fmt.Errorf("%s does validate as %s", fieldVal, validator)
+								}
+							}
+							return false, Error{field, v.Interface(), err, customMsgExists}
+						}
+					default:
+						// type not yet supported, fail
+						return false, Error{field, v.Interface(), fmt.Errorf("Validator %s doesn't support kind %s", validator, v.Kind()), false}
+					}
+				}
+			}
+		}
+
+		if validatefunc, ok := TagMap[validator]; ok {
+			switch v.Kind() {
+			case reflect.String:
+
+				fieldVal := fmt.Sprint(v) // make value into string, then validate with regex
+				if result := validatefunc(fieldVal); !result && !negate || result && negate {
+					var err error
+
+					if !negate {
+						if customMsgExists {
+							err = fmt.Errorf(customErrorMessage)
+						} else {
+							err = fmt.Errorf("%s does not validate as %s", fieldVal, validator)
+						}
+					} else {
+						if customMsgExists {
+							err = fmt.Errorf(customErrorMessage)
+						} else {
+							err = fmt.Errorf("%s does validate as %s", fieldVal, validator)
+						}
+					}
+
+					return false, Error{field, v.Interface(), err, customMsgExists}
+				}
+			default:
+				//Not Yet Supported Types (Fail here!)
+				err := fmt.Errorf("Validator %s doesn't support kind %s for value %v", validator, v.Kind(), v)
+				return false, Error{field, v.Interface(), err, false}
+			}
+		}
+	}
+
+	return true, nil
+}
+
+func checkMap(v reflect.Value, field string, options tagOptionsMap) (bool, error) {
+	if v.Type().Key().Kind() != reflect.String {
+		return false, &UnsupportedTypeError{v.Type()}
+	}
+	var sv stringValues
+	sv = v.MapKeys()
+	sort.Sort(sv)
+	result := true
+	for _, k := range sv {
+		resultItem, err := validateVar(v.MapIndex(k), fmt.Sprint(k), options)
+		if err != nil {
+			return false, err
+		}
+		result = result && resultItem
+	}
+	return result, nil
+}
+
+func checkSlice(v reflect.Value, field string, options tagOptionsMap) (bool, error) {
+	result := true
+	for i := 0; i < v.Len(); i++ {
+		var resultItem bool
+		var err error
+		if v.Index(i).Kind() != reflect.Struct {
+			resultItem, err = validateVar(v.Index(i), field, options)
+			if err != nil {
+				return false, err
+			}
+		} else {
+			/*
+				resultItem, err = ValidateStruct(v.Index(i).Interface())
+				if err != nil {
+					return false, err
+				}
+			*/
+		}
+		result = result && resultItem
+	}
+
+	return result, nil
+}
+
+func checkArray(v reflect.Value, field string, options tagOptionsMap) (bool, error) {
+	result := true
+	for i := 0; i < v.Len(); i++ {
+		var resultItem bool
+		var err error
+		if v.Index(i).Kind() != reflect.Struct {
+			resultItem, err = validateVar(v.Index(i), field, options)
+			if err != nil {
+				return false, err
+			}
+		} else {
+			/*
+				resultItem, err = ValidateStruct(v.Index(i).Interface())
+				if err != nil {
+					return false, err
+				}
+			*/
+		}
+		result = result && resultItem
+	}
+
+	return result, nil
+}
+
 // parseTagIntoMap parses a struct tag `valid:required~Some error message,length(2|3)` into map[string]string{"required": "Some error message", "length(2|3)": ""}
 func parseTagIntoMap(tag string) tagOptionsMap {
 	optionsMap := make(tagOptionsMap)
@@ -656,11 +867,13 @@ func IsSemver(str string) bool {
 	return rxSemver.MatchString(str)
 }
 
+// IsTime check if string is valid time
 func IsTime(str string, format string) bool {
 	_, err := time.Parse(format, str)
 	return err == nil
 }
 
+// IsRFC3339 check if string is rfc3339
 func IsRFC3339(str string) bool {
 	return IsTime(str, time.RFC3339)
 }
@@ -716,7 +929,7 @@ func isInRaw(str string, params ...string) bool {
 	return false
 }
 
-// check if string str is a member of the set of strings params
+// IsIn check if string str is a member of the set of strings params
 func IsIn(str string, params ...string) bool {
 	for _, param := range params {
 		if str == param {
