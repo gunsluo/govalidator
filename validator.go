@@ -611,7 +611,7 @@ func ValidateStruct(s interface{}) (bool, error) {
 func ValidateVar(val interface{}, tag string) (bool, error) {
 
 	if tag == "" || tag == "-" {
-		return false, Error{"", val, fmt.Errorf("value are required to at least have one validation tag"), false}
+		return false, Error{"", tag, val, fmt.Errorf("value are required to at least have one validation tag"), false}
 	}
 	options := parseTagIntoMap(tag)
 	v := reflect.ValueOf(val)
@@ -638,10 +638,10 @@ func validate(v reflect.Value, field string, options tagOptionsMap, o reflect.Va
 			customTypeValidatorsExist = true
 			if result := validatefunc(v.Interface(), o.Interface(), validatorParams...); !result {
 				if len(customErrorMessage) > 0 {
-					customTypeErrors = append(customTypeErrors, Error{Name: field, Value: v.Interface(), Err: fmt.Errorf(customErrorMessage), CustomErrorMessageExists: true})
+					customTypeErrors = append(customTypeErrors, Error{Name: field, Tag: validatorName, Value: v.Interface(), Err: fmt.Errorf(customErrorMessage), CustomErrorMessageExists: true})
 					continue
 				}
-				customTypeErrors = append(customTypeErrors, Error{Name: field, Value: v.Interface(), Err: fmt.Errorf("%s does not validate as %s", fmt.Sprint(v), validatorName), CustomErrorMessageExists: false})
+				customTypeErrors = append(customTypeErrors, Error{Name: field, Tag: validatorName, Value: v.Interface(), Err: fmt.Errorf("%s does not validate as %s", fmt.Sprint(v), validatorName), CustomErrorMessageExists: false})
 			}
 		}
 	}
@@ -736,11 +736,11 @@ func checkBasicDataType(v reflect.Value, field string, options tagOptionsMap, o 
 									err = fmt.Errorf("%s does validate as %s", fieldVal, validator)
 								}
 							}
-							return false, Error{field, v.Interface(), err, customMsgExists}
+							return false, Error{field, key, v.Interface(), err, customMsgExists}
 						}
 					default:
 						// type not yet supported, fail
-						return false, Error{field, v.Interface(), fmt.Errorf("Validator %s doesn't support kind %s", validator, v.Kind()), false}
+						return false, Error{field, key, v.Interface(), fmt.Errorf("Validator %s doesn't support kind %s", validator, v.Kind()), false}
 					}
 				}
 			}
@@ -768,12 +768,12 @@ func checkBasicDataType(v reflect.Value, field string, options tagOptionsMap, o 
 						}
 					}
 
-					return false, Error{field, v.Interface(), err, customMsgExists}
+					return false, Error{field, validator, v.Interface(), err, customMsgExists}
 				}
 			default:
 				//Not Yet Supported Types (Fail here!)
 				err := fmt.Errorf("Validator %s doesn't support kind %s for value %v", validator, v.Kind(), v)
-				return false, Error{field, v.Interface(), err, false}
+				return false, Error{field, validator, v.Interface(), err, false}
 			}
 		}
 	}
@@ -966,29 +966,14 @@ func IsIn(str string, params ...string) bool {
 	return false
 }
 
-/*
-func checkRequired(v reflect.Value, t reflect.StructField, options tagOptionsMap) (bool, error) {
-	if requiredOption, isRequired := options["required"]; isRequired {
-		if len(requiredOption) > 0 {
-			return false, Error{t.Name, v.Interface(), fmt.Errorf(requiredOption), true}
-		}
-		return false, Error{t.Name, v.Interface(), fmt.Errorf("non zero value required"), false}
-	} else if _, isOptional := options["optional"]; fieldsRequiredByDefault && !isOptional {
-		return false, Error{t.Name, v.Interface(), fmt.Errorf("All fields are required to at least have one validation defined"), false}
-	}
-	// not required and empty is valid
-	return true, nil
-}
-*/
-
 func checkRequired(v reflect.Value, field string, options tagOptionsMap) (bool, error) {
 	if requiredOption, isRequired := options["required"]; isRequired {
 		if len(requiredOption) > 0 {
-			return false, Error{field, v.Interface(), fmt.Errorf(requiredOption), true}
+			return false, Error{field, "required", v.Interface(), fmt.Errorf(requiredOption), true}
 		}
-		return false, Error{field, v.Interface(), fmt.Errorf("non zero value required"), false}
+		return false, Error{field, "required", v.Interface(), fmt.Errorf("non zero value required"), false}
 	} else if _, isOptional := options["optional"]; fieldsRequiredByDefault && !isOptional {
-		return false, Error{field, v.Interface(), fmt.Errorf("All fields are required to at least have one validation defined"), false}
+		return false, Error{field, "required", v.Interface(), fmt.Errorf("All fields are required to at least have one validation defined"), false}
 	}
 	// not required and empty is valid
 	return true, nil
@@ -1018,7 +1003,7 @@ func validateStructField(v reflect.Value, t reflect.StructField, o reflect.Value
 		if !fieldsRequiredByDefault {
 			return true, nil
 		}
-		return false, Error{t.Name, v.Interface(), fmt.Errorf("All fields are required to at least have one validation defined"), false}
+		return false, Error{t.Name, tag, v.Interface(), fmt.Errorf("All fields are required to at least have one validation defined"), false}
 	case "-":
 		return true, nil
 	}
