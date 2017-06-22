@@ -1,6 +1,9 @@
 package custom
 
-import "strconv"
+import (
+	"strconv"
+	"unicode/utf8"
+)
 
 // MaxCustomTypeTagFn check if param max return
 func MaxCustomTypeTagFn(i interface{}, ctx interface{}, params ...string) bool {
@@ -17,7 +20,7 @@ func MaxCustomTypeTagFn(i interface{}, ctx interface{}, params ...string) bool {
 	case int:
 		return v <= max
 	case string:
-		return len(v) <= max
+		return utf8.RuneCountInString(v) <= max
 	default:
 	}
 
